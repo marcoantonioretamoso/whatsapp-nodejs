@@ -190,8 +190,14 @@ export class InstanceManager {
     // Obtener socket de instancia
     getInstanceSocket(instanceId) {
         const instance = this.instances.get(instanceId);
+        console.log(`🔍 Obteniendo socket para la instanciaId: ${instanceId}, instancia encontrada: ${instance ? 'sí' : 'no'}`);
         return instance ? instance.socket : null;
     }
+//     getInstanceSocket(token) {
+//     const instance = this.instances.get(token);
+//     console.log(`🔍 Obteniendo socket para el token: ${token}, instancia encontrada: ${instance ? 'sí' : 'no'}`);
+//     return instance ? instance.socket : null;
+// }
 
 
 
