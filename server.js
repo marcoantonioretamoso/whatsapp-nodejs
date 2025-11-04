@@ -1080,6 +1080,54 @@ app.get("/status", async (req, res) => {
   }
 });
 
+app.get("/restart", async (req, res) => {
+  const { token, instance_id } = req.query;
+
+  if (!token || !instance_id) {
+    return res.status(400).json({
+      success: false,
+      error: "Token e instance_id son requeridos"
+    });
+  }
+
+  try {
+    console.log(`🔄 Reiniciando instancia ${instance_id} para token ${token}...`);
+
+    // 1️⃣ Validar token e instancia
+    // const isValid = await instanceManager.validateTokenAndInstance(token, instance_id);
+    // if (!isValid) {
+    //   return res.status(401).json({
+    //     success: false,
+    //     error: "Token o instancia inválidos"
+    //   });
+    // }
+
+    // 2️⃣ Desconectar instancia anterior si existe
+    await instanceManager.disconnectInstance(token, instance_id);
+
+    // 3️⃣ Reiniciar una nueva sesión de WhatsApp
+    const qrResult = await instanceManager.startWhatsAppSession(token, instance_id);
+
+    console.log(`✅ Instancia ${instance_id} reiniciada correctamente`);
+
+    res.json({
+      success: true,
+      message: "Instancia reiniciada correctamente. Escanea el nuevo QR.",
+      qr: qrResult.qr,
+      instance_id: instance_id,
+      status: 'qr_generated'
+    });
+
+  } catch (error) {
+    console.error("❌ Error al reiniciar instancia:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+
 // Endpoint para obtener todas las instancias de un usuario
 app.get("/instances", async (req, res) => {
   const { token } = req.query;

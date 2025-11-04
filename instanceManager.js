@@ -138,11 +138,21 @@ export class InstanceManager {
     }
 
     // Actualizar estado de instancia en BD
-    async updateInstanceStatus(instanceId, status) {
-        await this.db.run(
-            'UPDATE instances SET status = ? WHERE instance_id = ?',
-            status, instanceId
-        );
+    async updateInstanceStatus(userToken, instanceId, status) {
+        try {
+            // Actualizar el estado de la instancia para el usuario específico
+            await this.db.run(
+                `UPDATE instances 
+             SET status = ? 
+             WHERE instance_id = ? 
+             AND user_id = (SELECT id FROM users WHERE token = ?)`,
+                [status, instanceId, userToken]
+            );
+            console.log(`Estado actualizado a ${status} para ${userToken}_${instanceId}`);
+        } catch (error) {
+            console.error('Error actualizando estado de instancia:', error);
+            throw error;
+        }
     }
 
     // Verificar si token e instancia son válidos
@@ -193,11 +203,11 @@ export class InstanceManager {
         console.log(`🔍 Obteniendo socket para la instanciaId: ${instanceId}, instancia encontrada: ${instance ? 'sí' : 'no'}`);
         return instance ? instance.socket : null;
     }
-//     getInstanceSocket(token) {
-//     const instance = this.instances.get(token);
-//     console.log(`🔍 Obteniendo socket para el token: ${token}, instancia encontrada: ${instance ? 'sí' : 'no'}`);
-//     return instance ? instance.socket : null;
-// }
+    //     getInstanceSocket(token) {
+    //     const instance = this.instances.get(token);
+    //     console.log(`🔍 Obteniendo socket para el token: ${token}, instancia encontrada: ${instance ? 'sí' : 'no'}`);
+    //     return instance ? instance.socket : null;
+    // }
 
 
 
@@ -443,11 +453,12 @@ export class InstanceManager {
         try {
             await this.db.run(
                 `UPDATE instances SET status = ? 
-                 WHERE instance_id = ? AND user_id = (SELECT id FROM users WHERE token = ?)`,
+             WHERE instance_id = ? AND user_id = (SELECT id FROM users WHERE token = ?)`,
                 status, instanceId, userToken
             );
         } catch (error) {
-            console.error('Error actualizando estado de instancia en BD:', error);
+            console.error('Error actualizando estado de instancia:', error);
+            throw error;
         }
     }
 
