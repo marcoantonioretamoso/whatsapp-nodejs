@@ -1158,7 +1158,8 @@ app.get("/instances", async (req, res) => {
 app.post("/send-message", validateTokenAndInstance, async (req, res) => {
   const { token, instance_id = 'default', number, message } = req.body;
   console.log(`📩 Envío de mensaje solicitado para token: ${token}, instancia: ${instance_id}, número: ${number}`);
-  const sock = instanceManager.getInstanceSocket(instance_id);
+  // const sock = instanceManager.getInstanceSocket(instance_id);
+  const sock = instanceManager.getInstanceSocket(token, instance_id);
  console.log(`🔍 Obteniendo socket para la instancia: ${sock}`);
   if (!sock) {
     return res.status(400).json({

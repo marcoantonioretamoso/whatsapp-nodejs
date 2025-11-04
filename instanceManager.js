@@ -10,7 +10,7 @@ const __dirname = path.dirname(__filename);
 
 export class InstanceManager {
     constructor() {
-        this.instances = new Map(); // instance_id -> { socket, qr, status, userInfo, saveCreds }
+        this.instances = new Map();
         this.db = null;
     }
 
@@ -173,41 +173,93 @@ export class InstanceManager {
     }
 
     // Guardar mensaje en BD
-    async saveMessage(instanceId, fromUser, toUser, message, messageType = 'text') {
+    // async saveMessage(instanceId, fromUser, toUser, message, messageType = 'text') {
+    //     try {
+    //         const instance = await this.db.get(
+    //             'SELECT id FROM instances WHERE instance_id = ?',
+    //             instanceId
+    //         );
+
+    //         if (!instance) {
+    //             throw new Error('Instancia no encontrada');
+    //         }
+
+    //         await this.db.run(
+    //             `INSERT INTO messages (instance_id, from_user, to_user, message, message_type) 
+    //      VALUES (?, ?, ?, ?, ?)`,
+    //             instance.id, fromUser, toUser, message, messageType
+    //         );
+
+    //         return true;
+    //     } catch (error) {
+    //         console.error('Error guardando mensaje:', error);
+    //         throw error;
+    //     }
+    // }
+    async saveMessage(userToken, instanceId, fromUser, toUser, message, messageType = 'text') {
         try {
+            console.log(`💾 Intentando guardar mensaje para: ${userToken}_${instanceId}`);
+
+            // ✅ CORREGIDO: Buscar por instance_id Y userToken
             const instance = await this.db.get(
-                'SELECT id FROM instances WHERE instance_id = ?',
-                instanceId
+                `SELECT i.id 
+             FROM instances i 
+             JOIN users u ON i.user_id = u.id 
+             WHERE i.instance_id = ? AND u.token = ?`,
+                instanceId, userToken
             );
 
             if (!instance) {
-                throw new Error('Instancia no encontrada');
+                console.error(`❌ Instancia no encontrada en BD: ${instanceId} para token: ${userToken}`);
+                throw new Error('Instancia no encontrada en la base de datos');
             }
 
             await this.db.run(
                 `INSERT INTO messages (instance_id, from_user, to_user, message, message_type) 
-         VALUES (?, ?, ?, ?, ?)`,
+             VALUES (?, ?, ?, ?, ?)`,
                 instance.id, fromUser, toUser, message, messageType
             );
 
+            console.log(`✅ Mensaje guardado en BD para instancia: ${instanceId}`);
             return true;
         } catch (error) {
-            console.error('Error guardando mensaje:', error);
+            console.error('❌ Error guardando mensaje:', error);
             throw error;
         }
     }
+    getInstanceSocket(userToken, instanceId) {
+        if (this.instances.size === 0) {
+            console.log(`❌ El mapa de instancias está VACÍO`);
+            return;
+        }
 
-    // Obtener socket de instancia
-    getInstanceSocket(instanceId) {
-        const instance = this.instances.get(instanceId);
-        console.log(`🔍 Obteniendo socket para la instanciaId: ${instanceId}, instancia encontrada: ${instance ? 'sí' : 'no'}`);
+        this.instances.forEach((value, key) => {
+            console.log(`\n   --- INSTANCIA: ${key} ---`);
+            console.log(`   - Status: ${value.status}`);
+            console.log(`   - Tiene socket: ${!!value.socket}`);
+            console.log(`   - Tiene QR: ${!!value.qr}`);
+            console.log(`   - UserInfo:`, value.userInfo);
+            console.log(`   - SaveCreds: ${!!value.saveCreds}`);
+        });
+        // ❌ PROBLEMA: Estás usando solo instanceId
+        // const instanceKey = `${instanceId}`;
+
+        // ✅ SOLUCIÓN: Usa la misma clave que en startWhatsAppSession
+        const instanceKey = `${userToken}_${instanceId}`;
+
+        console.log(`🔍 Buscando socket para la instanceKey: ${instanceKey}`);
+
+        // Mostrar TODAS las instancias disponibles para debug
+        console.log(`📊 Instancias disponibles en el mapa:`);
+        this.instances.forEach((value, key) => {
+            console.log(`   - ${key} -> status: ${value.status}`);
+        });
+
+        const instance = this.instances.get(instanceKey);
+        console.log(`🔍 Instancia encontrada: ${instance ? 'SÍ ✅' : 'NO ❌'}`);
+
         return instance ? instance.socket : null;
     }
-    //     getInstanceSocket(token) {
-    //     const instance = this.instances.get(token);
-    //     console.log(`🔍 Obteniendo socket para el token: ${token}, instancia encontrada: ${instance ? 'sí' : 'no'}`);
-    //     return instance ? instance.socket : null;
-    // }
 
 
 
@@ -430,6 +482,142 @@ export class InstanceManager {
             throw error;
         }
     }
+    // async startWhatsAppSession(userToken, instanceId) {
+    //     try {
+    //         const instanceKey = `${userToken}_${instanceId}`;
+    //         console.log(`\n🚀 [startWhatsAppSession] INICIANDO para: ${instanceKey}`);
+
+    //         // ⚠️ PRIMERO: Limpiar cualquier instancia previa con la misma key
+    //         if (this.instances.has(instanceKey)) {
+    //             console.log(`🔄 Instancia previa encontrada, limpiando...`);
+    //             const oldInstance = this.instances.get(instanceKey);
+    //             if (oldInstance && oldInstance.socket) {
+    //                 try {
+    //                     oldInstance.socket.ev.removeAllListeners();
+    //                     await oldInstance.socket.end();
+    //                 } catch (error) {
+    //                     console.log('Error limpiando instancia previa:', error.message);
+    //                 }
+    //             }
+    //             this.instances.delete(instanceKey);
+    //         }
+
+    //         // Ruta de la sesión
+    //         const sessionPath = path.join(__dirname, 'sessions', userToken, instanceId);
+    //         await fs.mkdir(path.dirname(sessionPath), { recursive: true });
+
+    //         console.log(`📁 Session path: ${sessionPath}`);
+
+    //         const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+    //         const { version } = await fetchLatestBaileysVersion();
+
+    //         const sock = makeWASocket({
+    //             version,
+    //             auth: state,
+    //             markOnlineOnConnect: true,
+    //             printQRInTerminal: true,
+    //         });
+
+    //         // ✅ CREAR NUEVA INSTANCIA
+    //         const instanceData = {
+    //             socket: sock,
+    //             qr: null,
+    //             status: 'connecting',
+    //             userInfo: null,
+    //             saveCreds
+    //         };
+
+    //         // ✅ GUARDAR EN MAPA INMEDIATAMENTE
+    //         this.instances.set(instanceKey, instanceData);
+
+    //         // ✅ VERIFICACIÓN INMEDIATA
+    //         console.log(`💾 [startWhatsAppSession] Instancia guardada en mapa: ${instanceKey}`);
+    //         console.log(`📊 [startWhatsAppSession] Total instancias en mapa: ${this.instances.size}`);
+
+    //         const savedInstance = this.instances.get(instanceKey);
+    //         console.log(`🔍 [startWhatsAppSession] Verificación: instancia guardada correctamente: ${!!savedInstance}`);
+
+    //         // Retornar una promesa que se resuelve cuando se genera el QR
+    //         return new Promise((resolve, reject) => {
+    //             let qrGenerated = false;
+
+    //             sock.ev.on("connection.update", async (update) => {
+    //                 const currentInstance = this.instances.get(instanceKey);
+    //                 if (!currentInstance) {
+    //                     console.log(`❌ ERROR: Instancia ${instanceKey} no encontrada durante conexión`);
+    //                     return;
+    //                 }
+
+    //                 const { qr, connection, lastDisconnect } = update;
+
+    //                 console.log(`🔄 [connection.update] Para ${instanceKey}: ${connection}`);
+
+    //                 if (qr) {
+    //                     console.log(`📱 QR generado para ${instanceKey}`);
+    //                     currentInstance.qr = await qrcode.toDataURL(qr);
+    //                     currentInstance.status = 'qr_generated';
+    //                     qrGenerated = true;
+
+    //                     resolve({
+    //                         qr: currentInstance.qr,
+    //                         instanceId: instanceId,
+    //                         status: 'qr_generated'
+    //                     });
+    //                 }
+
+    //                 if (connection === "open") {
+    //                     console.log(`✅ CONEXIÓN ABIERTA para ${instanceKey}`);
+    //                     currentInstance.status = 'connected';
+    //                     currentInstance.qr = null;
+    //                     currentInstance.userInfo = {
+    //                         id: sock.user.id,
+    //                         name: sock.user.name || "Usuario",
+    //                         phone: sock.user.id.split(':')[0]
+    //                     };
+
+    //                     console.log(`👤 User info: ${currentInstance.userInfo.phone}`);
+
+    //                     // Guardar en BD
+    //                     await this.saveInstanceToDB(userToken, instanceId, currentInstance.userInfo);
+
+    //                     // Verificación final
+    //                     console.log(`🔍 [startWhatsAppSession] Verificación final - Instancia ${instanceKey} conectada correctamente`);
+    //                 }
+
+    //                 if (connection === "close") {
+    //                     console.log(`🔌 Conexión cerrada para ${instanceKey}`);
+    //                     const statusCode = (lastDisconnect.error)?.output?.statusCode;
+
+    //                     if (statusCode === 401) {
+    //                         console.log(`👤 Logout manual detectado`);
+    //                         currentInstance.status = 'disconnected';
+    //                         await this.updateInstanceStatusInDB(userToken, instanceId, 'disconnected');
+    //                         return;
+    //                     }
+
+    //                     // Reconexión automática
+    //                     console.log(`🔄 Reconectando en 3 segundos...`);
+    //                     setTimeout(() => {
+    //                         this.startWhatsAppSession(userToken, instanceId);
+    //                     }, 3000);
+    //                 }
+    //             });
+
+    //             sock.ev.on("creds.update", saveCreds);
+
+    //             // Timeout para evitar promesas colgadas
+    //             setTimeout(() => {
+    //                 if (!qrGenerated) {
+    //                     reject(new Error("Timeout al generar QR"));
+    //                 }
+    //             }, 30000);
+    //         });
+
+    //     } catch (error) {
+    //         console.error(`❌ Error en startWhatsAppSession para ${userToken}_${instanceId}:`, error);
+    //         throw error;
+    //     }
+    // }
     // Guardar instancia en la BD cuando se conecta
     async saveInstanceToDB(userToken, instanceId, userInfo) {
         try {
@@ -449,6 +637,7 @@ export class InstanceManager {
             console.error('Error guardando instancia en BD:', error);
         }
     }
+
     async updateInstanceStatusInDB(userToken, instanceId, status) {
         try {
             await this.db.run(
