@@ -16,8 +16,35 @@ export class InstanceManager {
 
     async initialize() {
         this.db = await initDatabase();
+        await this.restoreConnectedInstances();
     }
+    
+    async restoreConnectedInstances() {
+        try {
+            console.log('🔄 Restaurando instancias conectadas desde la base de datos...');
+            const connectedInstances = await this.db.all(`
+            SELECT i.instance_id, u.token 
+            FROM instances i 
+            JOIN users u ON i.user_id = u.id 
+            WHERE i.status = 'connected'
+        `);
 
+            console.log(`📊 Encontradas ${connectedInstances.length} instancias conectadas en la base de datos.`);
+
+            for (const { instance_id, token } of connectedInstances) {
+                console.log(`🔁 Restaurando instancia: ${token}_${instance_id}`);
+                try {
+                    await this.startWhatsAppSession(token, instance_id);
+                } catch (error) {
+                    console.error(`❌ Error restaurando instancia ${instance_id}:`, error);
+                    // Si no se puede restaurar, actualizar el estado en la base de datos a 'disconnected'
+                    await this.updateInstanceStatusInDB(token, instance_id, 'disconnected');
+                }
+            }
+        } catch (error) {
+            console.error('Error restaurando instancias conectadas:', error);
+        }
+    }
     // Crear usuario si no existe
     async createUser(token, name = 'Usuario') {
         try {
