@@ -1201,6 +1201,455 @@ app.post("/send-message", validateTokenAndInstance, async (req, res) => {
   }
 });
 
+// 2. Enviar mensaje a múltiples números (Broadcast)
+app.post("/send-broadcast", validateTokenAndInstance, async (req, res) => {
+  const { token, instance_id = 'default', numbers, message } = req.body;
+  console.log(`📢 Broadcast solicitado para token: ${token}, instancia: ${instance_id}, números: ${numbers.length}`);
+  
+  const sock = instanceManager.getInstanceSocket(token, instance_id);
+  console.log(`🔍 Obteniendo socket para la instancia: ${sock}`);
+  
+  if (!sock) {
+    return res.status(400).json({
+      success: false,
+      error: "Instancia no conectada"
+    });
+  }
+
+  if (!numbers || !Array.isArray(numbers) || numbers.length === 0) {
+    return res.status(400).json({
+      success: false,
+      error: "El campo 'numbers' debe ser un array con al menos un número"
+    });
+  }
+
+  if (!message) {
+    return res.status(400).json({
+      success: false,
+      error: "El mensaje es requerido"
+    });
+  }
+
+  try {
+    const results = [];
+
+    // Enviar mensajes en secuencia
+    for (const number of numbers) {
+      try {
+        const cleanNumber = number.replace(/\D/g, '');
+        const jid = `${cleanNumber}@s.whatsapp.net`;
+
+        await sock.sendMessage(jid, { text: message });
+        
+        // Guardar mensaje en BD
+        await instanceManager.saveMessage(
+          token, 
+          instance_id,
+          'system',
+          cleanNumber, 
+          message,
+          'text'
+        );
+        
+        results.push({ number: cleanNumber, status: "success" });
+        console.log(`📤 Mensaje broadcast enviado a ${cleanNumber}`);
+
+        // Pequeña pausa entre mensajes
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+      } catch (error) {
+        console.error(`❌ Error enviando broadcast a ${number}:`, error.message);
+        results.push({
+          number: number,
+          status: "error",
+          error: error.message
+        });
+      }
+    }
+
+    const successCount = results.filter(r => r.status === "success").length;
+    const errorCount = results.filter(r => r.status === "error").length;
+
+    res.json({
+      success: true,
+      message: `Mensajes broadcast enviados: ${successCount} éxitos, ${errorCount} errores`,
+      total: numbers.length,
+      successCount,
+      errorCount,
+      details: results,
+      instance_id: instance_id
+    });
+
+  } catch (error) {
+    console.error("❌ Error en broadcast:", error);
+    res.status(500).json({
+      success: false,
+      error: "Error en broadcast: " + error.message
+    });
+  }
+});
+
+// 3. Enviar imagen
+app.post("/send-image", validateTokenAndInstance, async (req, res) => {
+  const { token, instance_id = 'default', number, image_url, caption } = req.body;
+  console.log(`🖼️ Envío de imagen solicitado para token: ${token}, instancia: ${instance_id}, número: ${number}`);
+  
+  const sock = instanceManager.getInstanceSocket(token, instance_id);
+  console.log(`🔍 Obteniendo socket para la instancia: ${sock}`);
+  
+  if (!sock) {
+    return res.status(400).json({
+      success: false,
+      error: "Instancia no conectada"
+    });
+  }
+
+  if (!number || !image_url) {
+    return res.status(400).json({
+      success: false,
+      error: "Número y URL de imagen son requeridos"
+    });
+  }
+
+  try {
+    const cleanNumber = number.replace(/\D/g, '');
+    const jid = `${cleanNumber}@s.whatsapp.net`;
+
+    await sock.sendMessage(jid, {
+      image: { url: image_url },
+      caption: caption || "",
+      mimetype: 'image/jpeg'
+    });
+
+    // Guardar mensaje en BD
+    await instanceManager.saveMessage(
+      token, 
+      instance_id,
+      'system',
+      cleanNumber, 
+      caption || "Imagen enviada",
+      'image'
+    );
+
+    console.log(`🖼️ Imagen enviada a ${cleanNumber} desde ${token}_${instance_id}`);
+    res.json({
+      success: true,
+      message: "Imagen enviada correctamente",
+      to: cleanNumber,
+      instance_id: instance_id
+    });
+
+  } catch (error) {
+    console.error("❌ Error enviando imagen:", error);
+    res.status(500).json({
+      success: false,
+      error: "Error al enviar imagen: " + error.message
+    });
+  }
+});
+
+// 4. Enviar documento/archivo
+app.post("/send-document", validateTokenAndInstance, async (req, res) => {
+  const { token, instance_id = 'default', number, document_url, fileName, caption } = req.body;
+  console.log(`📎 Envío de documento solicitado para token: ${token}, instancia: ${instance_id}, número: ${number}`);
+  
+  const sock = instanceManager.getInstanceSocket(token, instance_id);
+  console.log(`🔍 Obteniendo socket para la instancia: ${sock}`);
+  
+  if (!sock) {
+    return res.status(400).json({
+      success: false,
+      error: "Instancia no conectada"
+    });
+  }
+
+  if (!number || !document_url || !fileName) {
+    return res.status(400).json({
+      success: false,
+      error: "Número, URL y nombre de archivo son requeridos"
+    });
+  }
+
+  try {
+    const cleanNumber = number.replace(/\D/g, '');
+    const jid = `${cleanNumber}@s.whatsapp.net`;
+
+    await sock.sendMessage(jid, {
+      document: { url: document_url },
+      fileName: fileName,
+      caption: caption || "",
+      mimetype: 'application/octet-stream'
+    });
+
+    // Guardar mensaje en BD
+    await instanceManager.saveMessage(
+      token, 
+      instance_id,
+      'system',
+      cleanNumber, 
+      caption || `Documento: ${fileName}`,
+      'document'
+    );
+
+    console.log(`📎 Documento enviado a ${cleanNumber} desde ${token}_${instance_id}`);
+    res.json({
+      success: true,
+      message: "Documento enviado correctamente",
+      to: cleanNumber,
+      instance_id: instance_id
+    });
+
+  } catch (error) {
+    console.error("❌ Error enviando documento:", error);
+    res.status(500).json({
+      success: false,
+      error: "Error al enviar documento: " + error.message
+    });
+  }
+});
+
+// 5. Enviar audio
+app.post("/send-audio", validateTokenAndInstance, async (req, res) => {
+  const { token, instance_id = 'default', number, audioUrl } = req.body;
+  console.log(`🎵 Envío de audio solicitado para token: ${token}, instancia: ${instance_id}, número: ${number}`);
+  
+  const sock = instanceManager.getInstanceSocket(token, instance_id);
+  console.log(`🔍 Obteniendo socket para la instancia: ${sock}`);
+  
+  if (!sock) {
+    return res.status(400).json({
+      success: false,
+      error: "Instancia no conectada"
+    });
+  }
+
+  if (!number || !audioUrl) {
+    return res.status(400).json({
+      success: false,
+      error: "Número y URL de audio son requeridos"
+    });
+  }
+
+  try {
+    const cleanNumber = number.replace(/\D/g, '');
+    const jid = `${cleanNumber}@s.whatsapp.net`;
+
+    await sock.sendMessage(jid, {
+      audio: { url: audioUrl },
+      mimetype: 'audio/mp4',
+      ptt: true
+    });
+
+    // Guardar mensaje en BD
+    await instanceManager.saveMessage(
+      token, 
+      instance_id,
+      'system',
+      cleanNumber, 
+      "Audio enviado",
+      'audio'
+    );
+
+    console.log(`🎵 Audio enviado a ${cleanNumber} desde ${token}_${instance_id}`);
+    res.json({
+      success: true,
+      message: "Audio enviado correctamente",
+      to: cleanNumber,
+      instance_id: instance_id
+    });
+
+  } catch (error) {
+    console.error("❌ Error enviando audio:", error);
+    res.status(500).json({
+      success: false,
+      error: "Error al enviar audio: " + error.message
+    });
+  }
+});
+
+// 6. Enviar video
+app.post("/send-video", validateTokenAndInstance, async (req, res) => {
+  const { token, instance_id = 'default', number, videoUrl, caption } = req.body;
+  console.log(`🎥 Envío de video solicitado para token: ${token}, instancia: ${instance_id}, número: ${number}`);
+  
+  const sock = instanceManager.getInstanceSocket(token, instance_id);
+  console.log(`🔍 Obteniendo socket para la instancia: ${sock}`);
+  
+  if (!sock) {
+    return res.status(400).json({
+      success: false,
+      error: "Instancia no conectada"
+    });
+  }
+
+  if (!number || !videoUrl) {
+    return res.status(400).json({
+      success: false,
+      error: "Número y URL de video son requeridos"
+    });
+  }
+
+  try {
+    const cleanNumber = number.replace(/\D/g, '');
+    const jid = `${cleanNumber}@s.whatsapp.net`;
+
+    await sock.sendMessage(jid, {
+      video: { url: videoUrl },
+      caption: caption || "",
+      mimetype: 'video/mp4'
+    });
+
+    // Guardar mensaje en BD
+    await instanceManager.saveMessage(
+      token, 
+      instance_id,
+      'system',
+      cleanNumber, 
+      caption || "Video enviado",
+      'video'
+    );
+
+    console.log(`🎥 Video enviado a ${cleanNumber} desde ${token}_${instance_id}`);
+    res.json({
+      success: true,
+      message: "Video enviado correctamente",
+      to: cleanNumber,
+      instance_id: instance_id
+    });
+
+  } catch (error) {
+    console.error("❌ Error enviando video:", error);
+    res.status(500).json({
+      success: false,
+      error: "Error al enviar video: " + error.message
+    });
+  }
+});
+
+// 7. Enviar ubicación
+app.post("/send-location", validateTokenAndInstance, async (req, res) => {
+  const { token, instance_id = 'default', number, latitude, longitude, name } = req.body;
+  console.log(`📍 Envío de ubicación solicitado para token: ${token}, instancia: ${instance_id}, número: ${number}`);
+  
+  const sock = instanceManager.getInstanceSocket(token, instance_id);
+  console.log(`🔍 Obteniendo socket para la instancia: ${sock}`);
+  
+  if (!sock) {
+    return res.status(400).json({
+      success: false,
+      error: "Instancia no conectada"
+    });
+  }
+
+  if (!number || !latitude || !longitude) {
+    return res.status(400).json({
+      success: false,
+      error: "Número, latitud y longitud son requeridos"
+    });
+  }
+
+  try {
+    const cleanNumber = number.replace(/\D/g, '');
+    const jid = `${cleanNumber}@s.whatsapp.net`;
+
+    await sock.sendMessage(jid, {
+      location: {
+        degreesLatitude: latitude,
+        degreesLongitude: longitude,
+        name: name || "Ubicación"
+      }
+    });
+
+    // Guardar mensaje en BD
+    await instanceManager.saveMessage(
+      token, 
+      instance_id,
+      'system',
+      cleanNumber, 
+      `Ubicación: ${name || "Sin nombre"} (${latitude}, ${longitude})`,
+      'location'
+    );
+
+    console.log(`📍 Ubicación enviada a ${cleanNumber} desde ${token}_${instance_id}`);
+    res.json({
+      success: true,
+      message: "Ubicación enviada correctamente",
+      to: cleanNumber,
+      instance_id: instance_id
+    });
+
+  } catch (error) {
+    console.error("❌ Error enviando ubicación:", error);
+    res.status(500).json({
+      success: false,
+      error: "Error al enviar ubicación: " + error.message
+    });
+  }
+});
+
+// 8. Enviar contacto
+app.post("/send-contact", validateTokenAndInstance, async (req, res) => {
+  const { token, instance_id = 'default', number, contactNumber, contactName } = req.body;
+  console.log(`👤 Envío de contacto solicitado para token: ${token}, instancia: ${instance_id}, número: ${number}`);
+  
+  const sock = instanceManager.getInstanceSocket(token, instance_id);
+  console.log(`🔍 Obteniendo socket para la instancia: ${sock}`);
+  
+  if (!sock) {
+    return res.status(400).json({
+      success: false,
+      error: "Instancia no conectada"
+    });
+  }
+
+  if (!number || !contactNumber || !contactName) {
+    return res.status(400).json({
+      success: false,
+      error: "Número, contacto y nombre de contacto son requeridos"
+    });
+  }
+
+  try {
+    const cleanNumber = number.replace(/\D/g, '');
+    const jid = `${cleanNumber}@s.whatsapp.net`;
+    const contactJid = `${contactNumber.replace(/\D/g, '')}@s.whatsapp.net`;
+
+    await sock.sendMessage(jid, {
+      contacts: {
+        contacts: [{
+          displayName: contactName,
+          vcard: `BEGIN:VCARD\nVERSION:3.0\nFN:${contactName}\nTEL:${contactNumber}\nEND:VCARD`
+        }]
+      }
+    });
+
+    // Guardar mensaje en BD
+    await instanceManager.saveMessage(
+      token, 
+      instance_id,
+      'system',
+      cleanNumber, 
+      `Contacto compartido: ${contactName} (${contactNumber})`,
+      'contact'
+    );
+
+    console.log(`👤 Contacto enviado a ${cleanNumber} desde ${token}_${instance_id}`);
+    res.json({
+      success: true,
+      message: "Contacto enviado correctamente",
+      to: cleanNumber,
+      instance_id: instance_id
+    });
+
+  } catch (error) {
+    console.error("❌ Error enviando contacto:", error);
+    res.status(500).json({
+      success: false,
+      error: "Error al enviar contacto: " + error.message
+    });
+  }
+});
+
 // Endpoint para desconectar una instancia
 app.delete("/disconnect", async (req, res) => {
   const { token, instance_id } = req.body;
@@ -1252,6 +1701,7 @@ app.post("/create-user", async (req, res) => {
     });
   }
 });
+
 
 // Inicializar servidor
 const PORT = 3001;
