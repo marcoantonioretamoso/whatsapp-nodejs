@@ -1680,14 +1680,13 @@ app.delete("/disconnect", async (req, res) => {
 app.post("/create-user", async (req, res) => {
   try {
     const { token, name } = req.body;
-
     if (!token) {
       return res.status(400).json({
         success: false,
         error: "Token es requerido"
       });
     }
-
+    console.log(`🆕 Creando usuario con token: ${token}, nombre: ${name}`);
     await instanceManager.createUser(token, name);
     res.json({
       success: true,
