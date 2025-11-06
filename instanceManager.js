@@ -18,7 +18,36 @@ export class InstanceManager {
         this.db = await initDatabase();
         await this.restoreConnectedInstances();
     }
-    
+    async getActiveInstance(userToken) {
+        try {
+            // Buscar en la base de datos una instancia que no esté desconectada
+            const instance = await this.db.get(`
+            SELECT i.* 
+            FROM instances i 
+            JOIN users u ON i.user_id = u.id 
+            WHERE u.token = ? AND i.status != 'disconnected'
+            ORDER BY i.created_at DESC
+            LIMIT 1
+        `, userToken);
+
+            if (instance) {
+                const instanceKey = `${userToken}_${instance.instance_id}`;
+                const instanceData = this.instances.get(instanceKey);
+
+                return {
+                    instance_id: instance.instance_id,
+                    status: instance.status,
+                    userInfo: instanceData?.userInfo || null,
+                    qr: instanceData?.qr || null
+                };
+            }
+            return null;
+        } catch (error) {
+            console.error('Error obteniendo instancia activa:', error);
+            return null;
+        }
+    }
+
     async restoreConnectedInstances() {
         try {
             console.log('🔄 Restaurando instancias conectadas desde la base de datos...');
@@ -287,8 +316,88 @@ export class InstanceManager {
 
         return instance ? instance.socket : null;
     }
+    async debugUserAndInstances(userToken) {
+        try {
+            // Verificar si el usuario existe
+            const user = await this.db.get('SELECT * FROM users WHERE token = ?', userToken);
+            if (!user) {
+                console.log(`❌ No se encontró usuario con token: ${userToken}`);
+                return null;
+            }
+            console.log(`✅ Usuario encontrado: ${user.id}, token: ${user.token}`);
+
+            // Verificar instancias del usuario
+            const instances = await this.db.all('SELECT * FROM instances WHERE user_id = ?', user.id);
+            console.log(`📊 Instancias encontradas para el usuario: ${instances.length}`);
+            instances.forEach(instance => {
+                console.log(`   - Instancia ID: ${instance.id}, instance_id: ${instance.instance_id}, status: ${instance.status}`);
+            });
+
+            // Verificar mensajes para cada instancia
+            for (const instance of instances) {
+                const messagesCount = await this.db.get(
+                    'SELECT COUNT(*) as count FROM messages WHERE instance_id = ?',
+                    instance.id
+                );
+                console.log(`   - Mensajes en instancia ${instance.id}: ${messagesCount.count}`);
+            }
+
+            return { user, instances };
+        } catch (error) {
+            console.error('❌ Error en diagnóstico:', error);
+            throw error;
+        }
+    }
+    
+    async getUserMessages(userToken, instanceId = null, limit = 50, offset = 0) {
+        try {
+            console.log(`📨 Obteniendo mensajes para token: ${userToken}, instancia: ${instanceId}`);
+
+            let query = `
+    SELECT 
+        m.*,
+        i.instance_id,
+        u.token,
+        datetime(m.timestamp) as formatted_date
+    FROM messages m
+    JOIN instances i ON m.instance_id = i.instance_id
+    JOIN users u ON i.user_id = u.id
+    WHERE u.token = ?
+`;
+
+const params = [userToken];
+
+if (instanceId) {
+    query += ` AND i.instance_id = ?`;
+    params.push(instanceId);
+}
+
+query += ` ORDER BY m.timestamp DESC LIMIT ? OFFSET ?`;
+params.push(limit, offset);
+
+const messages = await this.db.all(query, params);
 
 
+            // Formatear los mensajes para una mejor respuesta
+            const formattedMessages = messages.map(msg => ({
+                id: msg.id,
+                instance_id: msg.instance_id,
+                from_user: msg.from_user,
+                to_user: msg.to_user,
+                message: msg.message,
+                message_type: msg.message_type,
+                created_at: msg.formatted_date,  // Usamos la fecha formateada
+                timestamp: new Date(msg.timestamp).getTime()  // Convertimos el timestamp a número
+            }));
+
+            console.log(`✅ Encontrados ${formattedMessages.length} mensajes para ${userToken}`);
+            return formattedMessages;
+
+        } catch (error) {
+            console.error('❌ Error obteniendo mensajes del usuario:', error);
+            throw error;
+        }
+    }
 
     // Obtener info de usuario de la instancia
     getInstanceUserInfo(instanceId) {
