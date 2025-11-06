@@ -1,0 +1,23 @@
+# Node.js dependencies
+node_modules/
+
+# Environment variables
+.env
+
+# Session data (Baileys / WhatsApp)
+session/
+sessions/
+
+# Logs
+logs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build or temporary files
+dist/
+build/
+temp/
+.cache/
