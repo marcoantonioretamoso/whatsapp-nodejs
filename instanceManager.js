@@ -18,7 +18,7 @@ export class InstanceManager {
         this.db = await initDatabase();
         await this.restoreConnectedInstances();
     }
-    
+
     async restoreConnectedInstances() {
         try {
             console.log('🔄 Restaurando instancias conectadas desde la base de datos...');
@@ -722,6 +722,148 @@ export class InstanceManager {
         } catch (error) {
             console.error('Error desconectando instancia:', error);
             throw error;
+        }
+    }
+    async getUserMessages(userToken, instanceId = null, limit = 50, offset = 0) {
+        try {
+            console.log(`📨 Obteniendo mensajes para token: ${userToken}, instancia: ${instanceId}`);
+
+            let query = `
+            SELECT 
+                m.*,
+                i.instance_id,
+                u.token,
+                datetime(m.timestamp) as formatted_date
+            FROM messages m
+            JOIN instances i ON m.instance_id = i.id
+            JOIN users u ON i.user_id = u.id
+            WHERE u.token = ?
+        `;
+
+            const params = [userToken];
+
+            if (instanceId) {
+                // ✅ CORREGIDO: Buscar por el instance_id de la tabla instances, no por el id
+                query += ` AND i.instance_id = ?`;
+                params.push(instanceId);
+            }
+
+            query += ` ORDER BY m.timestamp DESC LIMIT ? OFFSET ?`;
+            params.push(limit, offset);
+
+            console.log(`🔍 Query ejecutada: ${query}`);
+            console.log(`🔍 Parámetros:`, params);
+
+            const messages = await this.db.all(query, params);
+
+            // Formatear los mensajes para una mejor respuesta
+            const formattedMessages = messages.map(msg => ({
+                id: msg.id,
+                instance_id: msg.instance_id, // Este es el instance_id de la tabla instances
+                from_user: msg.from_user,
+                to_user: msg.to_user,
+                message: msg.message,
+                message_type: msg.message_type,
+                created_at: msg.formatted_date,
+                timestamp: new Date(msg.timestamp).getTime()
+            }));
+
+            console.log(`✅ Encontrados ${formattedMessages.length} mensajes para ${userToken}`);
+            console.log(`🔍 Mensajes encontrados:`, formattedMessages);
+            return formattedMessages;
+
+        } catch (error) {
+            console.error('❌ Error obteniendo mensajes del usuario:', error);
+            throw error;
+        }
+    }
+    async debugMessagesQueryDetailed(userToken, instanceId = null) {
+        try {
+            console.log(`🔍 DIAGNÓSTICO DETALLADO para token: ${userToken}, instancia: ${instanceId}`);
+
+            // 1. Verificar usuario
+            const user = await this.db.get('SELECT * FROM users WHERE token = ?', userToken);
+            if (!user) {
+                console.log('❌ Usuario no encontrado');
+                return { success: false, error: 'Usuario no encontrado' };
+            }
+            console.log('✅ Usuario:', user.id, user.token);
+
+            // 2. Verificar instancias
+            const instances = await this.db.all(`
+            SELECT * FROM instances 
+            WHERE user_id = ?
+        `, user.id);
+
+            console.log(`📊 Instancias del usuario: ${instances.length}`);
+            instances.forEach(inst => {
+                console.log(`   - ID: ${inst.id}, Instance ID: ${inst.instance_id}, Status: ${inst.status}`);
+            });
+
+            // 3. Buscar la instancia específica si se proporcionó
+            if (instanceId) {
+                console.log(`🔍 Buscando instancia con instance_id: "${instanceId}"`);
+                const specificInstance = await this.db.get(
+                    'SELECT * FROM instances WHERE instance_id = ? AND user_id = ?',
+                    instanceId, user.id
+                );
+
+                if (specificInstance) {
+                    console.log(`✅ Instancia encontrada: ID ${specificInstance.id}, Instance ID: ${specificInstance.instance_id}`);
+
+                    // 4. Buscar mensajes específicos para esta instancia
+                    const instanceMessages = await this.db.all(`
+                    SELECT m.* 
+                    FROM messages m 
+                    WHERE m.instance_id = ?
+                    ORDER BY m.timestamp DESC
+                `, specificInstance.id);
+
+                    console.log(`📨 Mensajes para instancia ${specificInstance.instance_id}: ${instanceMessages.length}`);
+                    instanceMessages.forEach(msg => {
+                        console.log(`   - ID: ${msg.id}, From: ${msg.from_user}, To: ${msg.to_user}, Message: ${msg.message.substring(0, 50)}...`);
+                    });
+                } else {
+                    console.log(`❌ No se encontró instancia con instance_id: "${instanceId}"`);
+                }
+            }
+
+            // 5. Probar consulta corregida
+            console.log('🔍 Probando consulta corregida...');
+            let testQuery = `
+            SELECT 
+                m.*,
+                i.instance_id,
+                u.token
+            FROM messages m
+            JOIN instances i ON m.instance_id = i.id
+            JOIN users u ON i.user_id = u.id
+            WHERE u.token = ?
+        `;
+
+            const testParams = [userToken];
+            if (instanceId) {
+                testQuery += ` AND i.instance_id = ?`;
+                testParams.push(instanceId);
+            }
+            testQuery += ` ORDER BY m.timestamp DESC LIMIT 10`;
+
+            const testResults = await this.db.all(testQuery, testParams);
+            console.log(`🔍 Resultados consulta corregida: ${testResults.length} mensajes`);
+            testResults.forEach(msg => {
+                console.log(`   - ID: ${msg.id}, Instance: ${msg.instance_id}, From: ${msg.from_user}, To: ${msg.to_user}`);
+            });
+
+            return {
+                success: true,
+                user: user,
+                instances: instances,
+                queryResults: testResults
+            };
+
+        } catch (error) {
+            console.error('❌ Error en diagnóstico detallado:', error);
+            return { success: false, error: error.message };
         }
     }
 }

@@ -824,6 +824,63 @@ app.post("/create-user", async (req, res) => {
   }
 });
 
+// Endpoint mejorado para obtener mensajes
+app.get("/messages", async (req, res) => {
+    const { token, instance_id, limit = 50, offset = 0 } = req.query;
+
+    if (!token) {
+        return res.status(400).json({
+            success: false,
+            error: "Token es requerido"
+        });
+    }
+
+    try {
+        console.log(`📨 Solicitando mensajes para token: ${token}, instancia: ${instance_id || 'todas'}`);
+
+        // Primero verificar que el usuario existe
+        const user = await instanceManager.db.get('SELECT id FROM users WHERE token = ?', token);
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: "Token no válido"
+            });
+        }
+
+        // Si se proporciona instance_id, verificar que existe
+        if (instance_id) {
+            const instance = await instanceManager.db.get(
+                'SELECT id FROM instances WHERE instance_id = ? AND user_id = ?',
+                instance_id, user.id
+            );
+            
+            if (!instance) {
+                return res.status(404).json({
+                    success: false,
+                    error: `Instancia "${instance_id}" no encontrada para este token`
+                });
+            }
+        }
+
+        const messages = await instanceManager.getUserMessages(token, null, parseInt(limit), parseInt(offset));
+
+        res.json({
+            success: true,
+            messages: messages,
+            total: messages.length,
+            limit: parseInt(limit),
+            offset: parseInt(offset),
+            user_id: user.id
+        });
+
+    } catch (error) {
+        console.error("❌ Error obteniendo mensajes:", error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
 
 // Inicializar servidor
 const PORT = 3001;
